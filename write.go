@@ -8,10 +8,8 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"unicode"
-	"unicode/utf8"
 
-	"github.com/gofrs/uuid"
+	"github.com/gofrs/uuid/v5"
 )
 
 // UnableToCreateEpubError is thrown by Write if it cannot create the destination EPUB file
@@ -398,23 +396,9 @@ func fixXMLId(id string) (string, error) {
 	if len(id) == 0 {
 		return "", fmt.Errorf("no id given")
 	}
-	fixedId := []rune{}
-	for i := 0; len(id) > 0; i++ {
-		r, size := utf8.DecodeRuneInString(id)
-		if i == 0 {
-			// The new id should be prefixed with 'id' if an invalid
-			// starting character is found
-			// this is not 100% accurate, but a better check than no check
-			if unicode.IsNumber(r) || unicode.IsPunct(r) || unicode.IsSymbol(r) {
-				fixedId = append(fixedId, []rune("id")...)
-			}
-		}
-		if !unicode.IsSpace(r) && r != ':' {
-			fixedId = append(fixedId, r)
-		}
-		id = id[size:]
-	}
-	return string(fixedId), nil
+	namespace := uuid.NewV5(uuid.NamespaceURL, "github.com/go-shiori/go-epub")
+	fileIdentifier := fmt.Sprintf("id%s", uuid.NewV5(namespace, id))
+	return fileIdentifier, nil
 }
 
 // Write the mimetype file
