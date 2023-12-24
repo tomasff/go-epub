@@ -423,60 +423,17 @@ func (e *Epub) writePackageFile(rootEpubDir string) {
 // Write the section files to the temporary directory and add the sections to
 // the TOC and package files
 func (e *Epub) writeSections(rootEpubDir string) {
-	var index int
-
+	filenamelist := getFilenames(e.sections)
+	parentlist := getParents(e.sections, "-1")
 	if len(e.sections) > 0 {
 		// If a cover was set, add it to the package spine first so it shows up
 		// first in the reading order
 		if e.cover.xhtmlFilename != "" {
 			e.pkg.addToSpine(e.cover.xhtmlFilename)
 		}
-
-		for _, section := range e.sections {
-			// Set the title of the cover page XHTML to the title of the EPUB
-			if section.filename == e.cover.xhtmlFilename {
-				section.xhtml.setTitle(e.Title())
-			}
-
-			sectionFilePath := filepath.Join(rootEpubDir, contentFolderName, xhtmlFolderName, section.filename)
-			err := section.xhtml.write(sectionFilePath)
-			if err != nil {
-				log.Println(err)
-			}
-
-			relativePath := filepath.Join(xhtmlFolderName, section.filename)
-
-			// The cover page should have already been added to the spine first
-			if section.filename != e.cover.xhtmlFilename {
-				e.pkg.addToSpine(section.filename)
-			}
-			e.pkg.addToManifest(section.filename, relativePath, mediaTypeXhtml, "")
-
-			// Don't add pages without titles or the cover to the TOC
-			if section.xhtml.Title() != "" && section.filename != e.cover.xhtmlFilename {
-				e.toc.addSection(index, section.xhtml.Title(), relativePath)
-
-				// Add subsections
-				if section.children != nil {
-					for _, child := range *section.children {
-						index += 1
-						relativeSubPath := filepath.Join(xhtmlFolderName, child.filename)
-						e.toc.addSubSection(relativePath, index, child.xhtml.Title(), relativeSubPath)
-
-						subSectionFilePath := filepath.Join(rootEpubDir, contentFolderName, xhtmlFolderName, child.filename)
-						err = child.xhtml.write(subSectionFilePath)
-						if err != nil {
-							log.Println(err)
-						}
-
-						// Add subsection to spine
-						e.pkg.addToSpine(child.filename)
-						e.pkg.addToManifest(child.filename, relativeSubPath, mediaTypeXhtml, "")
-					}
-				}
-			}
-
-			index += 1
+		err := writeSections(rootEpubDir, e, e.sections, parentlist, filenamelist)
+		if err != nil {
+			log.Println(err)
 		}
 	}
 }
@@ -492,4 +449,59 @@ func (e *Epub) writeToc(rootEpubDir string) {
 		log.Println(err)
 	}
 
+}
+
+// Create a list of sections and their parents.
+// -1 means that sections are appended to the root (have no parents), like section and cover.
+func getParents(sections []*epubSection, root string) map[string]string {
+	fileparent := make(map[string]string)
+	for _, section := range sections {
+		fileparent[section.filename] = root
+		if section.children != nil {
+			childFileparent := getParents(section.children, section.filename)
+			for filename, parent := range childFileparent {
+				fileparent[filename] = parent
+			}
+		}
+	}
+	return fileparent
+}
+
+func writeSections(rootEpubDir string, e *Epub, sections []*epubSection, parentfilename map[string]string, filenamelist map[string]int) error {
+	for _, section := range sections {
+
+		// Set the title of the cover page XHTML to the title of the EPUB
+		if section.filename == e.cover.xhtmlFilename {
+			section.xhtml.setTitle(e.Title())
+		}
+
+		sectionFilePath := filepath.Join(rootEpubDir, contentFolderName, xhtmlFolderName, section.filename)
+		err := section.xhtml.write(sectionFilePath)
+		if err != nil {
+			log.Println(err)
+		}
+
+		relativePath := filepath.Join(xhtmlFolderName, section.filename)
+		if section.filename != e.cover.xhtmlFilename {
+			e.pkg.addToSpine(section.filename)
+		}
+		e.pkg.addToManifest(section.filename, relativePath, mediaTypeXhtml, "")
+		if parentfilename[section.filename] == "-1" && section.filename != e.cover.xhtmlFilename {
+			j := filenamelist[section.filename]
+			e.toc.addSubSection("-1", j, section.xhtml.Title(), relativePath)
+		}
+		if parentfilename[section.filename] != "-1" && section.filename != e.cover.xhtmlFilename {
+			j := filenamelist[section.filename]
+			parentfilenameis := parentfilename[section.filename]
+			e.toc.addSubSection(parentfilenameis, j, section.xhtml.Title(), relativePath)
+		}
+		if section.children != nil {
+			err = writeSections(rootEpubDir, e, section.children, parentfilename, filenamelist)
+			if err != nil {
+				log.Println(err)
+			}
+		}
+	}
+
+	return nil
 }

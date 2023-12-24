@@ -3,7 +3,9 @@ package epub
 import (
 	"encoding/xml"
 	"fmt"
+	"log"
 	"path/filepath"
+	"regexp"
 	"strconv"
 )
 
@@ -60,15 +62,15 @@ type toc struct {
 }
 
 type tocNavBody struct {
-	XMLName  xml.Name     `xml:"nav"`
-	EpubType string       `xml:"epub:type,attr"`
-	H1       string       `xml:"h1"`
-	Links    []tocNavItem `xml:"ol>li"`
+	XMLName  xml.Name      `xml:"nav"`
+	EpubType string        `xml:"epub:type,attr"`
+	H1       string        `xml:"h1"`
+	Links    []*tocNavItem `xml:"ol>li"`
 }
 
 type tocNavItem struct {
 	A        tocNavLink    `xml:"a"`
-	Children *[]tocNavItem `xml:"ol>li,omitempty"`
+	Children []*tocNavItem `xml:"ol>li,omitempty"`
 }
 
 type tocNavLink struct {
@@ -78,12 +80,12 @@ type tocNavLink struct {
 }
 
 type tocNcxRoot struct {
-	XMLName xml.Name         `xml:"http://www.daisy.org/z3986/2005/ncx/ ncx"`
-	Version string           `xml:"version,attr"`
-	Meta    tocNcxMeta       `xml:"head>meta"`
-	Title   string           `xml:"docTitle>text"`
-	Author  string           `xml:"docAuthor>text"`
-	NavMap  []tocNcxNavPoint `xml:"navMap>navPoint"`
+	XMLName xml.Name          `xml:"http://www.daisy.org/z3986/2005/ncx/ ncx"`
+	Version string            `xml:"version,attr"`
+	Meta    tocNcxMeta        `xml:"head>meta"`
+	Title   string            `xml:"docTitle>text"`
+	Author  string            `xml:"docAuthor>text"`
+	NavMap  []*tocNcxNavPoint `xml:"navMap>navPoint"`
 }
 
 type tocNcxContent struct {
@@ -100,7 +102,7 @@ type tocNcxNavPoint struct {
 	ID       string            `xml:"id,attr"`
 	Text     string            `xml:"navLabel>text"`
 	Content  tocNcxContent     `xml:"content"`
-	Children *[]tocNcxNavPoint `xml:"navPoint,omitempty"`
+	Children []*tocNcxNavPoint `xml:"navPoint,omitempty"`
 }
 
 // Constructor for toc
@@ -146,83 +148,56 @@ func newTocNcxXML() (*tocNcxRoot, error) {
 	return n, nil
 }
 
+// TODO: user should not add -1 as filename
 // Add a section to the TOC (navXML as well as ncxXML)
-func (t *toc) addSection(index int, title string, relativePath string) {
-	relativePath = filepath.ToSlash(relativePath)
-	l := &tocNavItem{
-		A: tocNavLink{
-			Href: relativePath,
-			Data: title,
-		},
-		Children: nil,
-	}
-	t.navXML.Links = append(t.navXML.Links, *l)
-
-	np := &tocNcxNavPoint{
-		ID:   "navPoint-" + strconv.Itoa(index),
-		Text: title,
-		Content: tocNcxContent{
-			Src: relativePath,
-		},
-		Children: nil,
-	}
-	t.ncxXML.NavMap = append(t.ncxXML.NavMap, *np)
-}
-
-// Add a sub section to the TOC (navXML as well as ncxXML)
 func (t *toc) addSubSection(parent string, index int, title string, relativePath string) {
-	var parentNcxIndex int
-	var parentNavIndex int
-
 	relativePath = filepath.ToSlash(relativePath)
-	parent = filepath.ToSlash(parent)
+	if parent == "-1" {
 
-	for index, nav := range t.navXML.Links {
-		if nav.A.Href == parent {
-			parentNavIndex = index
+		l := &tocNavItem{
+			A: tocNavLink{
+				Href: relativePath,
+				Data: title,
+			},
+			Children: nil,
 		}
-	}
-	l := tocNavItem{
-		A: tocNavLink{
-			Href: relativePath,
-			Data: title,
-		},
-	}
-	if len(t.navXML.Links) > parentNavIndex {
-		// Create a new array if none exists
-		if t.navXML.Links[parentNavIndex].Children == nil {
-			n := make([]tocNavItem, 0)
-			t.navXML.Links[parentNavIndex].Children = &n
+
+		np := &tocNcxNavPoint{
+			ID:   "navPoint-" + strconv.Itoa(index),
+			Text: title,
+			Content: tocNcxContent{
+				Src: relativePath,
+			},
+			Children: nil,
 		}
-		children := append(*t.navXML.Links[parentNavIndex].Children, l)
-		t.navXML.Links[parentNavIndex].Children = &children
-	} else {
 		t.navXML.Links = append(t.navXML.Links, l)
-	}
-
-	// Get parent object
-	for index, ncx := range t.ncxXML.NavMap {
-		if ncx.Content.Src == parent {
-			parentNcxIndex = index
-		}
-	}
-	np := tocNcxNavPoint{
-		ID:   "navPoint-" + strconv.Itoa(index),
-		Text: title,
-		Content: tocNcxContent{
-			Src: relativePath,
-		},
-		Children: nil,
-	}
-	if len(t.ncxXML.NavMap) > parentNcxIndex {
-		if t.ncxXML.NavMap[parentNcxIndex].Children == nil {
-			n := make([]tocNcxNavPoint, 0)
-			t.ncxXML.NavMap[parentNcxIndex].Children = &n
-		}
-		children := append(*t.ncxXML.NavMap[parentNcxIndex].Children, np)
-		t.ncxXML.NavMap[parentNcxIndex].Children = &children
-	} else {
 		t.ncxXML.NavMap = append(t.ncxXML.NavMap, np)
+	} else {
+
+		parentRelativePath := filepath.Join(xhtmlFolderName, parent)
+
+		l := &tocNavItem{
+			A: tocNavLink{
+				Href: relativePath,
+				Data: title,
+			},
+		}
+		np := &tocNcxNavPoint{
+			ID:   "navPoint-" + strconv.Itoa(index),
+			Text: title,
+			Content: tocNcxContent{
+				Src: relativePath,
+			},
+			Children: nil,
+		}
+		err := navAppender(t.navXML.Links, parentRelativePath, l)
+		if err != nil {
+			log.Println(err)
+		}
+		err = ncxAppender(t.ncxXML.NavMap, parentRelativePath, np)
+		if err != nil {
+			log.Println(err)
+		}
 	}
 }
 
@@ -254,7 +229,14 @@ func (t *toc) writeNavDoc(tempDir string) error {
 		return fmt.Errorf("Error marshalling XML for EPUB v3 TOC file: %w\n"+"\tXML=%#v", err, t.navXML)
 	}
 
-	n, err := newXhtml(string(navBodyContent))
+	// subsection without children itself left an empty tag <ol></ol>
+	// that not acceptable for epub v3
+	// this regex will remove those line from tocnav.
+	// TODO: find a better solution
+	re := regexp.MustCompile(`\s*<ol>\s*</ol>`)
+	bodyWithoutEmptyTags := re.ReplaceAllString(string(navBodyContent), "")
+
+	n, err := newXhtml(bodyWithoutEmptyTags)
 	if err != nil {
 		return fmt.Errorf("can't create xhtml for TOC file: %w", err)
 	}
@@ -289,4 +271,40 @@ func (t *toc) writeNcxDoc(tempDir string) error {
 		return fmt.Errorf("Error writing EPUB v2 TOC file: %w", err)
 	}
 	return nil
+}
+
+// Append tocNcxNavPoint to parent children for toc in Epub v2
+func ncxAppender(t []*tocNcxNavPoint, parentFilename string, targetsection *tocNcxNavPoint) error {
+	// Search for the epubSection with filename equal to parentFilename
+	for _, ncx := range t {
+		if ncx.Content.Src == parentFilename {
+			// Append targetsection as children of the found section
+			ncx.Children = append(ncx.Children, targetsection)
+			return nil
+		}
+		// Recursively check all children of the current section
+		err := ncxAppender(ncx.Children, parentFilename, targetsection)
+		if err == nil {
+			return nil
+		}
+	}
+	return fmt.Errorf("parent section not found")
+}
+
+// Append tocNavItem to parent children for toc in Epub v3
+func navAppender(t []*tocNavItem, parentFilename string, targetsection *tocNavItem) error {
+	// Search for the epubSection with filename equal to parentFilename
+	for _, nav := range t {
+		if nav.A.Href == parentFilename {
+			// Append targetsection as children of the found section
+			nav.Children = append(nav.Children, targetsection)
+			return nil
+		}
+		// Recursively check all children of the current section
+		err := navAppender(nav.Children, parentFilename, targetsection)
+		if err == nil {
+			return nil
+		}
+	}
+	return fmt.Errorf("parent section not found")
 }
