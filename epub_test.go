@@ -517,6 +517,16 @@ func TestAddSubSection(t *testing.T) {
 	if err != nil {
 		t.Errorf("Error adding subsection: %s", err)
 	}
+	// append subsection to a subsection
+	testSubSection2Path, err := e.AddSubSection(testSection2Path, testSectionBody, testSectionTitle, "", "")
+	if err != nil {
+		t.Errorf("Error adding subsection: %s", err)
+	}
+	// Append subsection to a parent that not exist
+	_, err2 := e.AddSubSection("ParentNotExist", testSectionBody, testSectionTitle, "", "")
+	if err2.Error() != "Parent with the internal filename ParentNotExist does not exist" {
+		t.Errorf("Error adding subsection: %s", err)
+	}
 
 	tempDir := writeAndExtractEpub(t, e, testEpubFilename)
 
@@ -536,6 +546,19 @@ func TestAddSubSection(t *testing.T) {
 	}
 
 	contents, err = storage.ReadFile(filesystem, filepath.Join(tempDir, contentFolderName, xhtmlFolderName, testSection2Path))
+	if err != nil {
+		t.Errorf("Unexpected error reading section file: %s", err)
+	}
+
+	if trimAllSpace(string(contents)) != trimAllSpace(testSectionContents) {
+		t.Errorf(
+			"Section file contents don't match\n"+
+				"Got: %s\n"+
+				"Expected: %s",
+			contents,
+			testSectionContents)
+	}
+	contents, err = storage.ReadFile(filesystem, filepath.Join(tempDir, contentFolderName, xhtmlFolderName, testSubSection2Path))
 	if err != nil {
 		t.Errorf("Unexpected error reading section file: %s", err)
 	}
@@ -820,6 +843,10 @@ func TestSetCover(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
+	err = e.SetCover(testImagePath, testCSSPath)
+	if err != nil {
+		t.Error(err)
+	}
 
 	tempDir := writeAndExtractEpub(t, e, testEpubFilename)
 
@@ -839,6 +866,18 @@ func TestSetCover(t *testing.T) {
 	}
 
 	cleanup(testEpubFilename, tempDir)
+}
+
+func TestSectionAppenderParrentNotFound(t *testing.T) {
+	sections := []*epubSection{}
+
+	parentFilename := "parent.html"
+	targetSection := &epubSection{}
+
+	err := sectionAppender(sections, parentFilename, targetSection)
+	if err.Error() != "parent section not found" {
+		t.Errorf("Error adding subsection: %s", err)
+	}
 }
 
 func TestManifestItems(t *testing.T) {
@@ -1341,4 +1380,51 @@ func writeAndExtractEpub(t testing.TB, e *Epub, epubFilename string) string {
 	}
 
 	return tempDir
+}
+
+func TestAddSubSectionWithCustomFilename(t *testing.T) {
+	e, err := NewEpub(testEpubTitle)
+	if err != nil {
+		t.Error(err)
+	}
+
+	testSection1Path, err := e.AddSection(testSectionBody, testSectionTitle, "firstsection.xhtml", "")
+	if err != nil {
+		t.Errorf("Error adding section: %s", err)
+	}
+
+	testSection2Path, err := e.AddSubSection(testSection1Path, testSectionBody, testSectionTitle, "", "")
+	if err != nil {
+		t.Errorf("Error adding subsection: %s", err)
+	}
+	// append subsection to a subsection
+	testSection3Path, err := e.AddSubSection(testSection2Path, testSectionBody, testSectionTitle, "someNameWithoutxhtml", "")
+	if err != nil {
+		t.Errorf("Error adding subsection: %s", err)
+	}
+	testSection4Path, err := e.AddSubSection(testSection2Path, testSectionBody, testSectionTitle, "someNameWitAnyExtentionButnotxhtml.jpg", "")
+	if err != nil {
+		t.Errorf("Error adding subsection: %s", err)
+	}
+	_, err = e.AddSubSection(testSection2Path, testSectionBody, testSectionTitle, "someNameWithoutxhtml.xhtml", "")
+	if err.Error() != "Filename already used: someNameWithoutxhtml.xhtml" {
+		t.Errorf("you should not add same file twice : %s", err)
+	}
+
+	tempDir := writeAndExtractEpub(t, e, testEpubFilename)
+
+	if testSection1Path != "firstsection.xhtml" {
+		t.Errorf("Expected section1Path to be 'firstsection.xhtml', got '%s'", testSection1Path)
+	}
+	if testSection2Path != "section0001.xhtml" {
+		t.Errorf("Expected section2Path to be 'section0001', got '%s'", testSection2Path)
+	}
+	if testSection3Path != "someNameWithoutxhtml.xhtml" {
+		t.Errorf("Expected section3Path to be 'someNameWithoutxhtml.xhtml', got '%s'", testSection3Path)
+	}
+	if testSection4Path != "someNameWitAnyExtentionButnotxhtml.jpg.xhtml" {
+		t.Errorf("Expected section4Path to be 'someNameWitAnyExtentionButnotxhtml.jpg', got '%s'", testSection4Path)
+	}
+
+	cleanup(testEpubFilename, tempDir)
 }
