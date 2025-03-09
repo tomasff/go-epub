@@ -652,10 +652,12 @@ func addMedia(client *http.Client, source string, internalFilename string, media
 		_, ok := mediaMap[internalFilename]
 		// if filename is too long, invalid or already used, try to generate a unique filename
 		if len(internalFilename) > 255 || !fs.ValidPath(internalFilename) || ok {
+			sourceUrl, _ := url.Parse(source)
+
 			internalFilename = fmt.Sprintf(
 				mediaFileFormat,
 				len(mediaMap)+1,
-				strings.ToLower(filepath.Ext(source)),
+				strings.ToLower(filepath.Ext(sourceUrl.Path)),
 			)
 		}
 	}
